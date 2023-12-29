@@ -11,9 +11,9 @@ const inMemoryMulter = multer({ storage });
 
 dotenv.config();
 
-const aai = new AssemblyAI({ apiKey: 'f881a4563d224e919c2949b3e0a56c5d' });
+const aai = new AssemblyAI({ apiKey: process.env.ASSEMBLY_KEY ?? ""});
 const app: Express = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
 
 app.get("/", (req: Request, res: Response) => {
     // getSimEnvironment();

@@ -1,8 +1,7 @@
 import express, { Express, Request, Response } from "express";
 import dotenv from "dotenv";
-import {getSimEnvironment} from "./msfs/getSimEnvironment";
 import {startTranscript} from "./assemblyAI/startTranscript";
-import * as os from "os";
+
 
 import multer from 'multer';
 import {AssemblyAI} from "assemblyai";
@@ -18,9 +17,6 @@ const port = 3001;
 
 app.get("/", (req: Request, res: Response) => {
     // getSimEnvironment();
-    // startTranscript().then(() => {
-    //     console.log("Transcript started");
-    // });
     res.send("Express + TypeScript Server");
 });
 

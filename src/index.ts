@@ -1,30 +1,30 @@
 import express, { Express, Request, Response } from "express";
 import dotenv from "dotenv";
-import {startTranscript} from "./assemblyAI/startTranscript";
-
-import multer from 'multer';
 import {AssemblyAI} from "assemblyai";
-
-const storage = multer.memoryStorage()
-const inMemoryMulter = multer({ storage });
+import cors from "cors";
 
 dotenv.config();
 
 const aai = new AssemblyAI({ apiKey: process.env.ASSEMBLY_KEY ?? ""});
+
 const app: Express = express();
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
+app.use(cors())
+
 const port = process.env.PORT || 3001;
 
-
-
 import {
-    LatLonAlt,
     open,
     Protocol,
-    readLatLonAlt, RecvOpen,
+    RecvOpen,
     SimConnectConstants,
     SimConnectDataType,
     SimConnectPeriod
 } from 'node-simconnect';
+
+import formatcoords from "formatcoords";
+
 
 const enum DefinitionID {
     LIVE_DATA,
@@ -34,7 +34,9 @@ const enum RequestID {
     LIVE_DATA,
 }
 
-let position: LatLonAlt | undefined;
+let altitude: number | undefined;
+let latitude: number | undefined;
+let longitude: number | undefined;
 let airspeed: number | undefined;
 let verticalSpeed: number | undefined;
 let heading: number | undefined;
@@ -62,40 +64,12 @@ export async function startListeningForSimEvents():Promise<RecvOpen> {
 
     handle.subscribeToSystemEvent(EVENT_ID_PAUSE, 'Pause');
 
-    handle.addToDataDefinition(
-        DefinitionID.LIVE_DATA,
-        'STRUCT LATLONALT',
-        null,
-        SimConnectDataType.LATLONALT
-    );
-
-    handle.addToDataDefinition(
-        DefinitionID.LIVE_DATA,
-        'AIRSPEED INDICATED',
-        'knots',
-        SimConnectDataType.INT32
-    );
-
-    handle.addToDataDefinition(
-        DefinitionID.LIVE_DATA,
-        'VERTICAL SPEED',
-        'Feet per second',
-        SimConnectDataType.INT32
-    );
-
-    handle.addToDataDefinition(
-        DefinitionID.LIVE_DATA,
-        'PLANE HEADING DEGREES TRUE',
-        'Degrees',
-        SimConnectDataType.INT32
-    );
-
-    handle.addToDataDefinition(
-        DefinitionID.LIVE_DATA,
-        'LIGHT LANDING',
-        'bool',
-        SimConnectDataType.INT32
-    );
+    handle.addToDataDefinition(DefinitionID.LIVE_DATA, 'INDICATED ALTITUDE', 'feet', SimConnectDataType.FLOAT64);
+    handle.addToDataDefinition(DefinitionID.LIVE_DATA, 'PLANE LATITUDE', 'degrees', SimConnectDataType.FLOAT64);
+    handle.addToDataDefinition(DefinitionID.LIVE_DATA, 'PLANE LONGITUDE', 'degrees', SimConnectDataType.FLOAT64);
+    handle.addToDataDefinition(DefinitionID.LIVE_DATA, 'VERTICAL SPEED', 'Feet per second', SimConnectDataType.INT32);
+    handle.addToDataDefinition(DefinitionID.LIVE_DATA, 'PLANE HEADING DEGREES TRUE', 'Degrees', SimConnectDataType.INT32);
+    handle.addToDataDefinition(DefinitionID.LIVE_DATA, 'AIRSPEED INDICATED', 'knots', SimConnectDataType.INT32);
 
     handle.requestDataOnSimObject(
         RequestID.LIVE_DATA,
@@ -106,52 +80,43 @@ export async function startListeningForSimEvents():Promise<RecvOpen> {
 
     handle.on('simObjectData', recvSimObjectData => {
         if (recvSimObjectData.requestID === RequestID.LIVE_DATA) {
-            position = readLatLonAlt(recvSimObjectData.data);
-            airspeed = recvSimObjectData.data.readInt32();
+            altitude = recvSimObjectData.data.readFloat64();
+            latitude = recvSimObjectData.data.readFloat64();
+            longitude = recvSimObjectData.data.readFloat64();
             verticalSpeed = recvSimObjectData.data.readInt32();
             heading = recvSimObjectData.data.readInt32();
+            airspeed = recvSimObjectData.data.readInt32();
         }
     });
     return recvOpen;
 }
 
 app.get("/", async (req: Request, res: Response) => {
-    const recvOpen = await startListeningForSimEvents();
+
     res.send(`
         Express + TypeScript Server.
-        SimConnect: ${recvOpen.applicationName}
     `);
 });
 
-app.post("/upload", inMemoryMulter.single('file'), async (req: Request, res: Response) => {
-    const file = req.file;
-    if (file !== undefined) {
-        const response = await startTranscript(file.buffer);
-        if(response === undefined || response === null) {
-            res.sendStatus(200);
-        } else {
-            res.send(response);
-        }
-    } else  {
-        res.sendStatus(400);
-    }
-});
-
-app.get("/token", async (_req, res) => {
+app.get("/token", async (req, res) => {
     const token = await aai.realtime.createTemporaryToken({ expires_in: 3600 });
     res.json({ token });
 });
 
 app.get("/simvars", async (_req, res) => {
     res.json({
-        position,
-        airspeed,
+        coordinates: formatcoords({lat: latitude ?? 0, lng: longitude ?? 0}).format(),
+        altitude,
         verticalSpeed,
         heading,
+        airspeed,
     });
 });
+
+app.use(express.static('files'))
 
 app.listen(port, () => {
     console.log(`[server]: Server is running at http://localhost:${port}`);
 });
 
+ void startListeningForSimEvents();
